@@ -3,7 +3,7 @@
 ## 1. Información General
 * **Título del Proyecto:** Sistema Inteligente de Segmentación y Caracterización de Eventos Epidemiológicos (SIVIGILA)
 * **Ruta Elegida:** Ruta B - Aprendizaje No Supervisado (Clustering con K-Means)
-* **Autores:** [Nombre Integrante 1] & [Nombre Integrante 2]
+* **Autores:** Arnold Santiago Torres (@eljarcor98) & [Compañero/a de pareja]
 * **Asignatura:** Machine Learning 2
 
 ---
@@ -130,8 +130,8 @@ docker logs ml-streamlit
    ```
 6. Clonar el repositorio y desplegar:
    ```bash
-   git clone <URL_DEL_REPOSITORIO>
-   cd ml_streamlit_project
+   git clone https://github.com/eljarcor98/Taller-Final-Machine-Learning-II.git
+   cd Taller-Final-Machine-Learning-II
    docker build -t ml-streamlit-app .
    docker run -d --name ml-streamlit --restart unless-stopped -p 8501:8501 ml-streamlit-app
    ```
