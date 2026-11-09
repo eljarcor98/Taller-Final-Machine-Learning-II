@@ -1,6 +1,7 @@
 """
-app.py - Interfaz interactiva en Streamlit para Segmentación (Ruta B: Clustering K-Means)
-Consume el artefacto model.joblib generado por train.py sin volver a entrenar.
+app.py - Interfaz de Usuario Interactiva en Streamlit
+Sistema de Vigilancia y Segmentación Epidemiológica (SIVIGILA)
+Dataset Oficial: Portal Nacional de Datos Abiertos (datos.gov.co)
 """
 
 from pathlib import Path
@@ -10,8 +11,8 @@ import streamlit as st
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="Segmentación de Clientes | K-Means",
-    page_icon="👥",
+    page_title="SIVIGILA | Segmentación Epidemiológica",
+    page_icon="🏥",
     layout="centered"
 )
 
@@ -20,15 +21,15 @@ MODEL_PATH = Path("model.joblib")
 
 @st.cache_resource
 def load_artifact():
-    """Carga el artefacto serializado del modelo y sus metadatos."""
+    """Carga el modelo y sus metadatos desde el archivo serializado."""
     if not MODEL_PATH.exists():
         return None
     return joblib.load(MODEL_PATH)
 
 
 def main():
-    st.title("👥 Segmentación Inteligente de Clientes")
-    st.caption("Despliegue de modelo no supervisado K-Means con Pipeline de Scikit-Learn y Docker")
+    st.title("🏥 SIVIGILA: Segmentación Epidemiológica")
+    st.caption("Caracterización de eventos de salud pública con K-Means y Docker | Datos Abiertos Colombia")
 
     artifact = load_artifact()
 
@@ -42,110 +43,132 @@ def main():
 
     model = artifact["model"]
     features = artifact["features"]
-    numeric_features = artifact.get("numeric_features", [])
     cluster_descriptions = artifact.get("cluster_descriptions", {})
     profiles = artifact.get("profiles", {})
+    top_events = artifact.get("top_events", {})
     numeric_stats = artifact.get("numeric_stats", {})
     n_clusters = artifact.get("n_clusters", 4)
     silhouette = artifact.get("silhouette", "N/A")
+    total_records = artifact.get("total_records", 1226)
 
-    st.markdown("### Ingrese las características del cliente a segmentar:")
-    st.info("El modelo normalizará los datos con StandardScaler y asignará automáticamente el perfil correspondiente.")
+    st.markdown("### Ingrese los datos del evento epidemiológico a evaluar:")
+    st.info("El modelo normaliza las variables y asigna el caso al perfil epidemiológico y nivel de prioridad correspondiente.")
 
     user_inputs = {}
 
-    with st.form("clustering_form"):
-        # Formulario amigable en columnas
-        col1, col2, col3 = st.columns(3)
+    with st.form("epidemiology_form"):
+        col1, col2 = st.columns(2)
 
-        # Edad
-        stats_edad = numeric_stats.get("edad", {"min": 18.0, "max": 75.0, "median": 35.0})
+        # Edad del paciente
+        stats_edad = numeric_stats.get("edad", {"min": 0.0, "max": 90.0, "median": 20.0})
         user_inputs["edad"] = col1.number_input(
-            "Edad (años)",
-            min_value=float(stats_edad.get("min", 18.0)),
-            max_value=float(stats_edad.get("max", 100.0)),
-            value=float(stats_edad.get("median", 35.0)),
+            "👶/👵 Edad del Paciente (años)",
+            min_value=0.0,
+            max_value=110.0,
+            value=float(stats_edad.get("median", 20.0)),
             step=1.0,
-            help="Edad cronológica del cliente"
+            help="Edad cronológica en años cumplidos"
         )
 
-        # Ingreso anual
-        stats_ingreso = numeric_stats.get("ingreso_anual", {"min": 10.0, "max": 150.0, "median": 60.0})
-        user_inputs["ingreso_anual"] = col2.number_input(
-            "Ingreso Anual (k$ USD)",
-            min_value=float(stats_ingreso.get("min", 10.0)),
-            max_value=float(stats_ingreso.get("max", 200.0)),
-            value=float(stats_ingreso.get("median", 60.0)),
-            step=1.0,
-            help="Ingresos anuales estimados en miles de dólares"
+        # Semana epidemiológica del año
+        user_inputs["semana_epidemiologica"] = col2.slider(
+            "📅 Semana Epidemiológica del Reporte",
+            min_value=1,
+            max_value=52,
+            value=25,
+            help="Semana del calendario epidemiológico (1 a 52) en la que ocurrió la notificación"
         )
 
-        # Puntaje de gasto
-        stats_gasto = numeric_stats.get("puntaje_gasto", {"min": 1.0, "max": 100.0, "median": 50.0})
-        user_inputs["puntaje_gasto"] = col3.slider(
-            "Puntaje de Gasto (1-100)",
-            min_value=1.0,
-            max_value=100.0,
-            value=float(stats_gasto.get("median", 50.0)),
-            step=1.0,
-            help="Puntaje de consumo basado en historial de compras y comportamiento"
-        )
+        col3, col4 = st.columns(2)
 
-        submitted = st.form_submit_button("🔍 Asignar Clúster", use_container_width=True)
+        # Estrato socioeconómico
+        user_inputs["estrato"] = float(col3.selectbox(
+            "🏠 Estrato Socioeconómico",
+            options=[1, 2, 3, 4],
+            index=0,
+            help="Estrato de residencia registrado en la ficha epidemiológica"
+        ))
+
+        # Hospitalización
+        hosp_choice = col4.selectbox(
+            "🚑 ¿Requirió Hospitalización?",
+            options=["NO (Manejo ambulatorio)", "SI (Internación hospitalaria)"],
+            index=0,
+            help="Indica si el paciente requirió internación en centro hospitalario"
+        )
+        user_inputs["hospitalizado"] = 1.0 if hosp_choice.startswith("SI") else 0.0
+
+        submitted = st.form_submit_button("🔍 Caracterizar Evento Epidemiológico", use_container_width=True)
 
     if submitted:
-        # Construir DataFrame con el orden exacto de características
+        # Vector ordenado según las características del modelo
         X_new = pd.DataFrame([user_inputs], columns=features)
 
         try:
-            # Predicción mediante el Pipeline (preprocesador + kmeans.predict)
+            # Inferencia a través del Pipeline
             cluster_id = int(model.predict(X_new)[0])
             cluster_info = cluster_descriptions.get(cluster_id, "Sin descripción disponible.")
 
             st.markdown("---")
-            st.subheader(f"🎯 Clúster Asignado: `Clúster {cluster_id}`")
-            st.success(f"**Perfil Interpretado:** {cluster_info}")
+            st.subheader(f"🎯 Perfil Asignado: `Clúster {cluster_id}`")
+            
+            # Badge de alerta según severidad
+            if cluster_id == 2:
+                st.error(f"🚨 **Alerta de Alta Severidad / Hospitalario:** {cluster_info}")
+            elif cluster_id == 3:
+                st.warning(f"⚠️ **Alerta Urbana / Zoonosis:** {cluster_info}")
+            else:
+                st.success(f"✅ **Manejo Comunitario / Ambulatorio:** {cluster_info}")
 
-            # Comparativa con el centroide / promedio del clúster
+            # Patologías frecuentes en este clúster
+            events = top_events.get(cluster_id, {})
+            if events:
+                st.markdown("#### 🦠 Patologías y Eventos Frecuentes en este Grupo:")
+                event_items = [f"**{k}** ({v} casos)" for k, v in events.items()]
+                st.markdown(" • " + "  \n • ".join(event_items))
+
+            # Comparativa métrica frente al promedio del clúster
             if cluster_id in profiles:
-                cluster_profile = profiles[cluster_id]
-                st.markdown("#### 📊 Comparativa: Cliente vs Promedio del Clúster")
-                comp_cols = st.columns(3)
-                comp_cols[0].metric(
-                    label="Edad",
+                c_prof = profiles[cluster_id]
+                st.markdown("#### 📊 Comparativa vs Promedios del Clúster:")
+                m1, m2, m3 = st.columns(3)
+                m1.metric(
+                    label="Edad del Paciente",
                     value=f"{user_inputs['edad']:.0f} años",
-                    delta=f"{user_inputs['edad'] - cluster_profile['edad']:+.1f} vs promedio ({cluster_profile['edad']} a)"
+                    delta=f"{user_inputs['edad'] - c_prof['edad']:+.1f} vs promedio ({c_prof['edad']} a)"
                 )
-                comp_cols[1].metric(
-                    label="Ingreso Anual",
-                    value=f"${user_inputs['ingreso_anual']:.1f}k",
-                    delta=f"{user_inputs['ingreso_anual'] - cluster_profile['ingreso_anual']:+.1f}k vs promedio (${cluster_profile['ingreso_anual']}k)"
+                m2.metric(
+                    label="Semana del Brote",
+                    value=f"Semana {user_inputs['semana_epidemiologica']:.0f}",
+                    delta=f"{user_inputs['semana_epidemiologica'] - c_prof['semana_epidemiologica']:+.1f} vs media (Sem {c_prof['semana_epidemiologica']})"
                 )
-                comp_cols[2].metric(
-                    label="Puntaje de Gasto",
-                    value=f"{user_inputs['puntaje_gasto']:.0f} pts",
-                    delta=f"{user_inputs['puntaje_gasto'] - cluster_profile['puntaje_gasto']:+.1f} vs promedio ({cluster_profile['puntaje_gasto']} pts)"
+                m3.metric(
+                    label="Estrato",
+                    value=f"Estrato {user_inputs['estrato']:.0f}",
+                    delta=f"{user_inputs['estrato'] - c_prof['estrato']:+.2f} vs media ({c_prof['estrato']})"
                 )
 
-            with st.expander("Ver vector de datos crudos procesado"):
+            with st.expander("Ver vector de características procesado"):
                 st.dataframe(X_new)
 
         except Exception as e:
             st.error(f"Error al calcular la asignación del clúster: {e}")
 
-    # Barra lateral informativa
+    # Barra lateral técnica y contexto
     with st.sidebar:
         st.header("📌 Parámetros del Modelo")
         st.write(f"- **Algoritmo:** K-Means Clustering")
         st.write(f"- **Número de Clústers (k):** {n_clusters}")
         st.write(f"- **Silhouette Score:** `{silhouette}`")
-        st.write(f"- **Variables de Entrada:** `{', '.join(features)}`")
+        st.write(f"- **Casos Históricos Analizados:** `{total_records:,}`")
         st.markdown("---")
-        st.subheader("📖 Resumen de Perfiles")
+        st.subheader("🌐 Fuente de Datos Oficial")
+        st.markdown("[Eventos Epidemiológicos | datos.gov.co](https://www.datos.gov.co/Salud-y-Protecci-n-Social/Eventos-Epidemiol-gicos/afi7-frbs/about_data)")
+        st.caption("Sistema de Vigilancia en Salud Pública (SIVIGILA), Ministerio de Salud y Protección Social de Colombia.")
+        st.markdown("---")
+        st.subheader("📖 Clústeres Definidos")
         for cid, desc in cluster_descriptions.items():
-            st.markdown(f"**Clúster {cid}:** {desc}")
-        st.markdown("---")
-        st.caption("Reto ML | Scikit-Learn + Streamlit + Docker + GCP")
+            st.markdown(f"**Clúster {cid}:** {desc[:80]}...")
 
 
 if __name__ == "__main__":
