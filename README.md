@@ -137,6 +137,34 @@ docker logs ml-streamlit
    ```
 7. Abrir en el navegador: `http://<IP_EXTERNA_VM>:8501`.
 
+### 9.1 Despliegue Alternativo en Servidor Físico / Raspberry Pi (Edge Computing)
+Si se desea desplegar en hardware propio (Raspberry Pi 3/4/5 con arquitectura ARM64 o Linux local):
+1. Instalar Docker y Git:
+   ```bash
+   sudo apt update && sudo apt install -y docker.io git
+   sudo systemctl enable --now docker
+   sudo usermod -aG docker $USER
+   ```
+2. Clonar y ejecutar el contenedor:
+   ```bash
+   git clone https://github.com/eljarcor98/Taller-Final-Machine-Learning-II.git
+   cd Taller-Final-Machine-Learning-II
+   docker build -t ml-streamlit-app .
+   docker run -d --name ml-streamlit --restart unless-stopped -p 8501:8501 ml-streamlit-app
+   ```
+3. Exposición a Internet mediante túnel seguro (sin necesidad de abrir puertos en el router residencial):
+   ```bash
+   npx localtunnel --port 8501
+   # O mediante Cloudflare Tunnel:
+   # cloudflared tunnel --url http://localhost:8501
+   ```
+
+### 9.2 Despliegue Alternativo PaaS (Render.com / Koyeb)
+1. Conectar la cuenta de GitHub con [Render.com](https://render.com) o [Koyeb.com](https://www.koyeb.com).
+2. Crear un nuevo servicio apuntando al repositorio `Taller-Final-Machine-Learning-II`.
+3. Seleccionar el entorno **Docker** (detectará automáticamente el `Dockerfile` y la variable de puerto `$PORT`).
+4. La plataforma construirá el contenedor y asignará una URL pública segura con HTTPS.
+
 ---
 
 ## 10. Casos de Prueba para Evaluación Cruzada
