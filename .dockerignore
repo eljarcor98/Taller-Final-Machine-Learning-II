@@ -1,0 +1,9 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.ipynb_checkpoints
+.env
+*.log
+ml_streamlit_project.zip
