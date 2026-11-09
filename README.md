@@ -1,70 +1,73 @@
-# Reto ML: Segmentación de Eventos Epidemiológicos con Streamlit, Docker y GCP
+# Reto ML: Predicción de Hospitalización Epidemiológica (SIVIGILA) con Streamlit, Docker y GCP
 
 ## 1. Información General
-* **Título del Proyecto:** Sistema Inteligente de Segmentación y Caracterización de Eventos Epidemiológicos (SIVIGILA)
-* **Ruta Elegida:** Ruta B - Aprendizaje No Supervisado (Clustering con K-Means)
+* **Título del Proyecto:** Sistema Inteligente de Triaje Epidemiológico y Predicción de Hospitalización
+* **Ruta Elegida:** Ruta A - Aprendizaje Supervisado (Clasificación Binaria)
 * **Autores:** Arnold Santiago Torres (@eljarcor98) & [Compañero/a de pareja]
 * **Asignatura:** Machine Learning 2
+* **Repositorio Oficial:** [github.com/eljarcor98/Taller-Final-Machine-Learning-II](https://github.com/eljarcor98/Taller-Final-Machine-Learning-II)
 
 ---
 
 ## 2. Objetivo y Descripción del Dataset
-* **Objetivo de Negocio / Salud Pública:** Descubrir patrones poblacionales, demográficos y clínicos en los eventos epidemiológicos reportados en el sistema de salud pública, permitiendo priorizar recursos hospitalarios, triaje preventivo y focalización de campañas de salud comunitaria.
-* **Unidad de Observación:** Cada registro representa una **notificación individual de un evento de salud pública** reportado por una Unidad Generadora de Datos (IPS / Hospitales).
-* **Origen de los datos:** Portal Nacional de Datos Abiertos de Colombia ([datos.gov.co - Eventos Epidemiológicos](https://www.datos.gov.co/Salud-y-Protecci-n-Social/Eventos-Epidemiol-gicos/afi7-frbs/about_data)).
+* **Objetivo de Negocio / Salud Pública:** Predecir oportunamente si un paciente notificado en el sistema de vigilancia epidemiológica requerirá **Hospitalización (`SI` / `NO`)**, optimizando la asignación preventiva de camas hospitalarias, el triaje clínico y la activación de protocolos de aislamiento.
+* **Unidad de Observación:** Cada registro representa una **notificación individual de un evento de salud pública** reportado por una Institución Prestadora de Salud (IPS).
+* **Origen de los datos:** Portal Nacional de Datos Abiertos de Colombia ([datos.gov.co - Eventos Epidemiológicos SIVIGILA](https://www.datos.gov.co/Salud-y-Protecci-n-Social/Eventos-Epidemiol-gicos/afi7-frbs/about_data)).
 * **Ubicación en el repositorio:** `data/datos.csv` (1,226 casos notificados).
 
 ---
 
 ## 3. Variables Utilizadas
 
-| Variable | Tipo | Descripción | Rango / Valores |
-| :--- | :--- | :--- | :--- |
-| `edad` | Numérica (Entera) | Edad cronológica del paciente al momento del evento | 0 a 90 años |
-| `semana_epidemiologica` | Numérica (Entera) | Semana del calendario epidemiológico del reporte | 1 a 52 |
-| `estrato` | Numérica / Ordinal | Estrato socioeconómico de la residencia | 1 a 4 |
-| `hospitalizado` | Numérica / Binaria | Condición de atención hospitalaria del caso | 0 = Ambulatorio, 1 = Hospitalizado |
+### Variable Objetivo (`TARGET`)
+* **`hospitalizacion`**: Condición de internación hospitalaria del paciente (`SI`: 30.7%, `NO`: 69.3%).
 
-> **Nota Metodológica:** Se excluyeron identificadores administrativos, códigos geográficos redundantes y fechas largas de texto para evitar ruido y fugas de información (*data leakage*).
+### Variables Numéricas (`numeric_features`)
+* **`edad`**: Edad cronológica cumplida del paciente (0 a 110 años).
+* **`semana_epidemiologica`**: Semana del calendario epidemiológico del reporte (1 a 52).
+* **`estrato`**: Estrato socioeconómico de la vivienda (1 a 4).
+
+### Variables Categóricas (`categorical_features`)
+* **`evento_reportado`**: Evento o patología notificada (Dengue, Malaria, Morbilidad Materna, Desnutrición, Agresiones por animales, etc.).
+* **`sexo`**: Sexo biológico del paciente (`F`, `M`).
+* **`regimen_salud`**: Régimen de afiliación a seguridad social (`S`: Subsidiado, `C`: Contributivo, `I`: Indeterminado, `E`: Especial, etc.).
+* **`gestante`**: Condición de embarazo (`SI`, `NO`).
+* **`grupo_riesgo`**: Pertenencia a grupos comunitarios en riesgo epidemiológico (`SI`, `NO`).
+* **`indigena`**: Pertenencia a población étnica indígena (`SI`, `NO`).
+
+> **Nota Metodológica:** Se excluyeron identificadores administrativos, llaves primarias, códigos de municipio redundantes y fechas para prevenir sesgos y fugas de datos (*data leakage*).
 
 ---
 
 ## 4. Preparación de Datos y Pipeline
-Para garantizar que las transformaciones se repliquen de forma idéntica en entrenamiento e inferencia, se construyó un `Pipeline` unificado de Scikit-Learn:
-1. **Imputación:** `SimpleImputer(strategy="median")` para manejar posibles campos vacíos en estrato o edad.
-2. **Estandarización:** `StandardScaler()`. Al utilizar K-Means basado en distancias euclidianas, es indispensable estandarizar las variables (media 0, desviación estándar 1) para que magnitudes dispares (ej. semanas epidemiológicas 1-52 vs estrato 1-4) no distorsionen los centroides.
-3. **Clustering:** `KMeans(n_clusters=4, random_state=42, n_init="auto")`.
+Para asegurar total reproducibilidad y evitar diferencias entre entrenamiento e inferencia, el preprocesamiento y el modelo se encapsulan en un `Pipeline` único de Scikit-Learn:
+1. **Rama Numérica:**
+   * Imputación de valores faltantes con la **mediana** (`SimpleImputer(strategy="median")`).
+   * Estandarización a media 0 y varianza unitaria (`StandardScaler()`).
+2. **Rama Categórica:**
+   * Imputación con la moda / categoría más frecuente (`SimpleImputer(strategy="most_frequent")`).
+   * Codificación One-Hot (`OneHotEncoder(handle_unknown="ignore")`) para tolerar categorías nuevas en producción sin generar excepciones.
+3. **Consolidación:** Ensamblado con `ColumnTransformer` que alimenta directamente al estimador.
 
 ---
 
 ## 5. Modelo Seleccionado y Justificación
-* **Algoritmo:** **K-Means**.
-* **Justificación para despliegue:** Permite inferencia en tiempo real en la aplicación web mediante el método `.predict()`, proyectando nuevos casos sobre los centroides calculados durante el entrenamiento en tiempo $O(k \cdot d)$.
-* **Criterios y Métricas de Evaluación:**
-  * **Silhouette Score:** `0.3969` (indica clusters bien formados y estadísticamente diferenciados en el espacio transformado).
-  * **Inercia intra-cluster (WCSS):** `2011.28`.
-  * **Interpretabilidad clínica:** Cada clúster aísla perfiles con implicaciones operativas claras en la gestión hospitalaria.
+* **Algoritmo:** **Regresión Logística con Balanceo de Clases (`class_weight="balanced"`)**.
+* **Justificación Clínica y Técnica:** En triaje médico, el costo de un Falso Negativo (enviar a casa a un paciente que requería internación urgente) es crítico. El balanceo de pesos prioriza la sensibilidad clínica de la clase minoritaria (`SI`), permitiendo además calcular probabilidades exactas y calibradas con `predict_proba()` para dar certidumbre al personal de salud.
+* **Métricas Obtenidas en Conjunto de Prueba Independiente (20% Test):**
+  * **F1-Score Ponderado:** `0.7364`
+  * **Exactitud Global (Accuracy):** `72.76%`
+  * **Sensibilidad / Recall para Hospitalización (`SI`):** `72.0%` (detecta 54 de cada 75 casos que requieren hospitalización).
+  * **Precisión para Manejo Ambulatorio (`NO`):** `86.0%`
 
 ---
 
-## 6. Interpretación de los Clústers (Perfiles Epidemiológicos)
-
-* **Clúster 0 - Población Pediátrica y Juvenil Ambulatoria (45.1% de los casos):**
-  * *Edad promedio:* 12.2 años | *Semana promedio:* 28.7 | *Estrato:* 1.0 | *Hospitalizados:* 0.0%
-  * *Eventos frecuentes:* Malaria ambulatoria, violencia intrafamiliar y dengue no grave.
-  * *Estrategia:* Monitoreo ambulatorio y refuerzo de visitas comunitarias.
-* **Clúster 1 - Adultos Mayores Vulnerables (15.4% de los casos):**
-  * *Edad promedio:* 51.9 años | *Semana promedio:* 25.9 | *Estrato:* 1.0 | *Hospitalizados:* 15.3%
-  * *Eventos frecuentes:* Malaria en edad adulta, dengue y agresiones por animales (rabia).
-  * *Estrategia:* Control de comorbilidades y seguimiento a infecciones endémicas.
-* **Clúster 2 - Casos Críticos de Urgencia Hospitalaria (26.3% de los casos):**
-  * *Edad promedio:* 14.4 años | *Semana promedio:* 20.3 | *Estrato:* 1.0 | *Hospitalizados:* **100.0%**
-  * *Eventos frecuentes:* Malaria complicada, desnutrición aguda severa en menores de 5 años e intentos de autolesión.
-  * *Estrategia:* Priorización inmediata de camas hospitalarias y alerta al servicio de urgencias.
-* **Clúster 3 - Población Urbana Estrato Medio / Zoonosis (13.1% de los casos):**
-  * *Edad promedio:* 32.5 años | *Semana promedio:* 32.0 | *Estrato:* 2.1 | *Hospitalizados:* 16.1%
-  * *Eventos frecuentes:* Dengue urbano, agresiones por animales transmisores de rabia y leishmaniasis.
-  * *Estrategia:* Control vectorial urbano y vigilancia epidemiológica focalizada.
+## 6. Interpretación de la Salida en la Aplicación
+La interfaz en Streamlit recibe las variables del nuevo caso y entrega:
+1. **Dictamen Clínico:**
+   * 🚨 **ALERTA CLÍNICA (Hospitalización Sugerida):** Recomienda priorizar asignación de cama y valoración médica urgente.
+   * ✅ **MANEJO AMBULATORIO SUGERIDO:** Recomienda tratamiento domiciliario y seguimiento comunitario.
+2. **Distribución de Certeza:** Visualización gráfica mediante métricas y barras de progreso del porcentaje de probabilidad de internación (`Probabilidad SI`) vs manejo ambulatorio (`Probabilidad NO`).
 
 ---
 
@@ -79,7 +82,7 @@ pip install -r requirements.txt
 ```bash
 python train.py
 ```
-> Ejecuta el pipeline completo y genera el archivo `model.joblib`.
+> Ejecuta el pipeline, genera las métricas de evaluación y exporta `model.joblib`.
 
 ### Paso 3: Iniciar la aplicación web en Streamlit
 ```bash
@@ -169,20 +172,20 @@ Si se desea desplegar en hardware propio (Raspberry Pi 3/4/5 con arquitectura AR
 
 ## 10. Casos de Prueba para Evaluación Cruzada
 
-Para que otra pareja reproduzca y compruebe el proyecto:
+Para que otra pareja compruebe la reproducibilidad del sistema, ingresar estos casos en la aplicación web:
 
-### Caso 1: Paciente Pediátrico Ambulatorio
-* **Entradas:** `Edad = 8`, `Semana Epidemiológica = 28`, `Estrato = 1`, `Hospitalizado = NO`
-* **Salida Esperada:** **`Clúster 0`** (Población Pediátrica y Juvenil Ambulatoria).
+### Caso 1: Morbilidad Materna Extrema (Alta Complejidad)
+* **Entradas:** `Edad = 28`, `Semana = 20`, `Estrato = 1`, `Evento = MORBILIDAD MATERNA EXTREMA`, `Sexo = F`, `Régimen = S`, `Gestante = SI`, `Grupo de Riesgo = SI`, `Indígena = NO`
+* **Salida Esperada:** **`Clase SI`** (Probabilidad de Hospitalización: **~88.8%**).
 
-### Caso 2: Adulto Mayor Vulnerable
-* **Entradas:** `Edad = 60`, `Semana Epidemiológica = 26`, `Estrato = 1`, `Hospitalizado = NO`
-* **Salida Esperada:** **`Clúster 1`** (Adultos y Adultos Mayores Vulnerables).
+### Caso 2: Agresión por Animal / Rabia (Manejo Ambulatorio)
+* **Entradas:** `Edad = 35`, `Semana = 35`, `Estrato = 2`, `Evento = AGRESIONES POR ANIMALES POTENCIALMENTE TRANSMISORES DE RABIA`, `Sexo = M`, `Régimen = C`, `Gestante = NO`, `Grupo de Riesgo = NO`, `Indígena = NO`
+* **Salida Esperada:** **`Clase NO`** (Probabilidad de Manejo Ambulatorio: **~93.6%**).
 
-### Caso 3: Paciente Hospitalizado de Urgencia
-* **Entradas:** `Edad = 15`, `Semana Epidemiológica = 20`, `Estrato = 1`, `Hospitalizado = SI`
-* **Salida Esperada:** **`Clúster 2`** (Casos Críticos de Urgencia Hospitalaria).
+### Caso 3: Desnutrición Aguda Pediátrica
+* **Entradas:** `Edad = 3`, `Semana = 15`, `Estrato = 1`, `Evento = DESNUTRICIÓN AGUDA EN MENORES DE 5 AÑOS`, `Sexo = M`, `Régimen = S`, `Gestante = NO`, `Grupo de Riesgo = SI`, `Indígena = NO`
+* **Salida Esperada:** **`Clase SI`** (Probabilidad de Hospitalización: **~71.2%**).
 
-### Caso 4: Caso Urbano Estrato Medio
-* **Entradas:** `Edad = 32`, `Semana Epidemiológica = 32`, `Estrato = 3`, `Hospitalizado = NO`
-* **Salida Esperada:** **`Clúster 3`** (Población Urbana Estrato Medio / Zoonosis).
+### Caso 4: Malaria Ambulatoria en Adulto
+* **Entradas:** `Edad = 28`, `Semana = 35`, `Estrato = 2`, `Evento = MALARIA`, `Sexo = M`, `Régimen = C`, `Gestante = NO`, `Grupo de Riesgo = NO`, `Indígena = NO`
+* **Salida Esperada:** **`Clase NO`** (Probabilidad de Manejo Ambulatorio: **~65.9%**).

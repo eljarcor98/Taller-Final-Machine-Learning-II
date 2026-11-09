@@ -1,6 +1,7 @@
 """
-train.py - Entrenamiento y Evaluación Reproducible (Ruta B: Clustering K-Means)
-Dataset Oficial: Eventos Epidemiológicos - Portal Nacional de Datos Abiertos (datos.gov.co)
+train.py - Entrenamiento y Evaluación Reproducible (Ruta A: Aprendizaje Supervisado - Clasificación)
+Problema: Predicción de Hospitalización en Pacientes Epidemiológicos (SIVIGILA)
+Dataset Oficial: Portal Nacional de Datos Abiertos de Colombia (datos.gov.co)
 """
 
 from pathlib import Path
@@ -8,11 +9,13 @@ import joblib
 import pandas as pd
 import numpy as np
 
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, confusion_matrix, f1_score, accuracy_score
 
 # ==========================================
 # 1. CONFIGURACIÓN DE RUTAS Y VARIABLES
@@ -21,24 +24,30 @@ DATA_DIR = Path("data")
 DATA_FILE = DATA_DIR / "datos.csv"
 MODEL_PATH = Path("model.joblib")
 
-# Características numéricas seleccionadas para el clustering
-features = [
+# Variable objetivo a predecir
+TARGET = "hospitalizacion"
+
+# Variables explicativas
+numeric_features = [
     "edad",
     "semana_epidemiologica",
-    "estrato",
-    "hospitalizado"
+    "estrato"
 ]
 
-feature_labels = {
-    "edad": "Edad del Paciente (años)",
-    "semana_epidemiologica": "Semana Epidemiológica (1-52)",
-    "estrato": "Estrato Socioeconómico (1-4)",
-    "hospitalizado": "Condición de Hospitalización (0=Ambulatorio, 1=Hospitalizado)"
-}
+categorical_features = [
+    "evento_reportado",
+    "sexo",
+    "regimen_salud",
+    "gestante",
+    "grupo_riesgo",
+    "indigena"
+]
+
+features = numeric_features + categorical_features
 
 
-def load_and_preprocess_data(data_path: Path = None) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Carga el dataset oficial de datos.gov.co y extrae las variables analíticas."""
+def load_and_clean_data(data_path: Path = None) -> pd.DataFrame:
+    """Carga y estructura el dataset oficial de datos.gov.co."""
     if data_path is None:
         if DATA_FILE.exists():
             data_path = DATA_FILE
@@ -55,124 +64,130 @@ def load_and_preprocess_data(data_path: Path = None) -> tuple[pd.DataFrame, pd.D
     df_raw = pd.read_csv(data_path)
     print(f"[*] Registros leídos: {df_raw.shape[0]} filas, {df_raw.shape[1]} columnas")
 
-    # Mapeo y preparación de variables de interés
-    df_processed = pd.DataFrame()
-    df_processed["edad"] = pd.to_numeric(df_raw["Edad_paciente"], errors="coerce")
-    df_processed["semana_epidemiologica"] = pd.to_numeric(df_raw["Semana_epidemiológica"], errors="coerce")
-    df_processed["estrato"] = pd.to_numeric(df_raw["Estrato_socioeconómico"], errors="coerce")
-    
-    # Hospitalización: 1 si fue internado (SI), 0 si fue ambulatorio (NO)
-    hosp_str = df_raw["Hospitalizacion"].astype(str).str.upper().str.strip()
-    df_processed["hospitalizado"] = (hosp_str == "SI").astype(float)
+    # Mapeo de variables analíticas
+    df = pd.DataFrame()
+    df["edad"] = pd.to_numeric(df_raw["Edad_paciente"], errors="coerce")
+    df["semana_epidemiologica"] = pd.to_numeric(df_raw["Semana_epidemiológica"], errors="coerce")
+    df["estrato"] = pd.to_numeric(df_raw["Estrato_socioeconómico"], errors="coerce")
+    df["sexo"] = df_raw["Sexo_paciente"].astype(str).str.upper().str.strip().fillna("F")
+    df["regimen_salud"] = df_raw["Tipo Seguridad Social"].astype(str).str.upper().str.strip().fillna("S")
+    df["gestante"] = df_raw["Gestante"].astype(str).str.upper().str.strip().fillna("NO")
+    df["grupo_riesgo"] = df_raw["Otros_grupos_riesgo"].astype(str).str.upper().str.strip().fillna("SI")
+    df["indigena"] = df_raw["Pertenencia_indígena"].astype(str).str.upper().str.strip().fillna("NO")
+    df["evento_reportado"] = df_raw["Evento_reportado"].astype(str).str.upper().str.strip().fillna("OTRO")
 
-    # Conservamos evento original para análisis de perfiles
-    if "Evento_reportado" in df_raw.columns:
-        df_processed["evento_reportado"] = df_raw["Evento_reportado"].fillna("NO ESPECIFICADO")
-    else:
-        df_processed["evento_reportado"] = "DESCONOCIDO"
+    # Variable objetivo (Hospitalización: SI / NO)
+    df[TARGET] = df_raw["Hospitalizacion"].astype(str).str.upper().str.strip()
+    df = df[df[TARGET].isin(["SI", "NO"])].copy()
 
-    return df_raw, df_processed
+    print(f"[*] Casos analizados con etiqueta válida: {len(df)}")
+    print(f"[*] Distribución de {TARGET}:")
+    print(df[TARGET].value_counts(normalize=True).round(3) * 100)
+
+    return df
 
 
-def train_model(df_processed: pd.DataFrame) -> dict:
-    """Construye el pipeline de clustering, entrena, evalúa e interpreta los perfiles."""
-    X = df_processed[features].copy()
+def train_model(df: pd.DataFrame) -> dict:
+    """Construye el pipeline de preprocesamiento + clasificación, entrena y evalúa."""
+    X = df[features].copy()
+    y = df[TARGET].copy()
 
-    # 1. Pipeline de Scikit-Learn: Imputación (mediana) + Escalado (StandardScaler) + K-Means
-    N_CLUSTERS = 4
-    model = Pipeline([
+    # 1. Separación de datos de entrenamiento (80%) y prueba (20%) estratificado
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.20, random_state=42, stratify=y
+    )
+
+    # 2. Pipeline de preprocesamiento unificado (ColumnTransformer)
+    numeric_pipe = Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
-        ("scaler", StandardScaler()),
-        ("cluster", KMeans(
-            n_clusters=N_CLUSTERS,
-            random_state=42,
-            n_init="auto"
-        ))
+        ("scaler", StandardScaler())
     ])
 
-    # 2. Entrenamiento e inferencia de clusters
-    print("[*] Entrenando Pipeline K-Means...")
-    labels = model.fit_predict(X)
+    categorical_pipe = Pipeline([
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False))
+    ])
 
-    # 3. Evaluación cuantitativa (Silhouette Score e Inercia)
-    X_transformed = model[:-1].transform(X)
-    score_silhouette = silhouette_score(X_transformed, labels)
-    inertia = model.named_steps["cluster"].inertia_
+    preprocessor = ColumnTransformer([
+        ("num", numeric_pipe, numeric_features),
+        ("cat", categorical_pipe, categorical_features)
+    ])
+
+    # 3. Clasificador con balanceo de clases para alta sensibilidad clínica
+    classifier = LogisticRegression(
+        class_weight="balanced",
+        max_iter=1000,
+        random_state=42
+    )
+
+    # 4. Pipeline consolidado
+    model = Pipeline([
+        ("preprocessor", preprocessor),
+        ("classifier", classifier)
+    ])
+
+    # 5. Entrenamiento
+    print("\n[*] Entrenando Pipeline de Clasificación Supervisada...")
+    model.fit(X_train, y_train)
+
+    # 6. Evaluación rigurosa en conjunto de prueba
+    y_pred = model.predict(X_test)
+    f1 = f1_score(y_test, y_pred, average="weighted")
+    acc = accuracy_score(y_test, y_pred)
+    cm = confusion_matrix(y_test, y_pred, labels=["NO", "SI"])
+    report = classification_report(y_test, y_pred)
 
     print("\n" + "=" * 65)
-    print("      EVALUACIÓN DE CLUSTERING - EVENTOS EPIDEMIOLÓGICOS")
+    print("      EVALUACIÓN DEL MODELO SUPERVISADO (HOSPITALIZACIÓN)")
     print("=" * 65)
-    print(f"Número de clusters (k):  {N_CLUSTERS}")
-    print(f"Silhouette Score:        {score_silhouette:.4f} (Estructura sólida y diferenciada)")
-    print(f"Inercia intra-cluster:   {inertia:.2f}")
-
-    # 4. Perfilamiento cuantitativo de cada cluster
-    df_eval = df_processed.copy()
-    df_eval["cluster"] = labels
-
-    profiles = (
-        df_eval
-        .groupby("cluster")[features]
-        .mean()
-        .round(2)
-    )
-    counts = df_eval["cluster"].value_counts()
-    profiles["total_casos"] = counts
-    profiles["porcentaje"] = (counts / len(df_eval) * 100).round(1).astype(str) + "%"
-
-    print("\n--- Promedios Cuantitativos por Clúster ---")
-    print(profiles)
-
-    # Top eventos epidemiológicos por clúster
-    print("\n--- Patologías Predominantes por Clúster ---")
-    top_events = {}
-    for c in range(N_CLUSTERS):
-        sub = df_eval[df_eval["cluster"] == c]
-        top = sub["evento_reportado"].value_counts().head(3).to_dict()
-        top_events[c] = top
-        print(f"Clúster {c}: {top}")
+    print(f"F1-Score ponderado: {f1:.4f}")
+    print(f"Exactitud (Accuracy): {acc * 100:.2f}%\n")
+    print("--- Matriz de Confusión [NO, SI] ---")
+    print(cm)
+    print("\n--- Reporte de Clasificación Detallado ---")
+    print(report)
     print("=" * 65)
 
-    # 5. Descripciones epidemiológicas interpretables para el personal de salud
-    cluster_descriptions = {
-        0: "Población Pediátrica y Juvenil Ambulatoria: Pacientes jóvenes (edad promedio ~12 años), estrato 1, no hospitalizados. Casos de Malaria ambulatoria, dengue no grave y seguimiento de violencia intrafamiliar.",
-        1: "Adultos y Adultos Mayores Vulnerables: Edad promedio ~52 años, estrato 1, manejo mayoritariamente ambulatorio (~15% internados). Afectados por malaria endémica y dengue en etapas adultas.",
-        2: "Casos Críticos de Urgencia Hospitalaria: 100% requirieron internación hospitalaria. Alta presencia de menores de edad y jóvenes (~14 años) con desnutrición aguda severa y malaria complicada.",
-        3: "Población Urbana Estrato Medio / Zoonosis: Edad promedio ~33 años, estratos 2 y 3. Casos urbanos concentrados en brotes de Dengue, leishmaniasis y agresiones por animales transmisores de rabia."
+    # 7. Opciones de categorías observadas durante el entrenamiento
+    category_options = {
+        col: sorted(df[col].dropna().unique().tolist())
+        for col in categorical_features
     }
 
-    # 6. Estadísticas descriptivas para los widgets de entrada en Streamlit
+    # 8. Estadísticas numéricas para los widgets de Streamlit
     numeric_stats = {}
-    for col in features:
+    for col in numeric_features:
         numeric_stats[col] = {
-            "min": float(df_processed[col].min()),
-            "max": float(df_processed[col].max()),
-            "mean": float(df_processed[col].mean()),
-            "median": float(df_processed[col].median())
+            "min": float(df[col].min()),
+            "max": float(df[col].max()),
+            "median": float(df[col].median()),
+            "mean": float(df[col].mean())
         }
 
-    # 7. Construcción del artefacto serializable
+    # 9. Artefacto serializable
     artifact = {
         "model": model,
         "features": features,
-        "feature_labels": feature_labels,
-        "task": "clustering",
-        "n_clusters": N_CLUSTERS,
-        "silhouette": round(float(score_silhouette), 4),
-        "inertia": round(float(inertia), 2),
-        "cluster_descriptions": cluster_descriptions,
-        "profiles": profiles.to_dict(orient="index"),
-        "top_events": top_events,
+        "numeric_features": numeric_features,
+        "categorical_features": categorical_features,
+        "category_options": category_options,
         "numeric_stats": numeric_stats,
-        "total_records": len(df_processed)
+        "task": "classification",
+        "target_name": "Hospitalización",
+        "classes": ["NO", "SI"],
+        "metrics": {
+            "f1_score": round(float(f1), 4),
+            "accuracy": round(float(acc), 4)
+        },
+        "total_cases": len(df)
     }
 
     return artifact
 
 
 def main() -> None:
-    _, df_processed = load_and_preprocess_data()
-    artifact = train_model(df_processed)
+    df = load_and_clean_data()
+    artifact = train_model(df)
     joblib.dump(artifact, MODEL_PATH)
     print(f"\n[✓] Artefacto guardado exitosamente en: {MODEL_PATH.resolve()}")
 

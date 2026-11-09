@@ -1,7 +1,7 @@
 """
-app.py - Interfaz de Usuario Interactiva en Streamlit
-Sistema de Vigilancia y Segmentación Epidemiológica (SIVIGILA)
-Dataset Oficial: Portal Nacional de Datos Abiertos (datos.gov.co)
+app.py - Interfaz de Usuario Interactiva en Streamlit (Ruta A: Clasificación Supervisada)
+Sistema de Triaje Epidemiológico y Predicción de Hospitalización (SIVIGILA)
+Dataset Oficial: Portal Nacional de Datos Abiertos de Colombia (datos.gov.co)
 """
 
 from pathlib import Path
@@ -11,7 +11,7 @@ import streamlit as st
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="SIVIGILA | Segmentación Epidemiológica",
+    page_title="SIVIGILA | Predicción de Hospitalización",
     page_icon="🏥",
     layout="centered"
 )
@@ -21,15 +21,15 @@ MODEL_PATH = Path("model.joblib")
 
 @st.cache_resource
 def load_artifact():
-    """Carga el modelo y sus metadatos desde el archivo serializado."""
+    """Carga el modelo y sus metadatos desde el artefacto serializado."""
     if not MODEL_PATH.exists():
         return None
     return joblib.load(MODEL_PATH)
 
 
 def main():
-    st.title("🏥 SIVIGILA: Segmentación Epidemiológica")
-    st.caption("Caracterización de eventos de salud pública con K-Means y Docker | Datos Abiertos Colombia")
+    st.title("🏥 SIVIGILA: Predicción de Hospitalización")
+    st.caption("Sistema de triaje y priorización clínica con Machine Learning (Scikit-Learn + Docker)")
 
     artifact = load_artifact()
 
@@ -43,132 +43,162 @@ def main():
 
     model = artifact["model"]
     features = artifact["features"]
-    cluster_descriptions = artifact.get("cluster_descriptions", {})
-    profiles = artifact.get("profiles", {})
-    top_events = artifact.get("top_events", {})
+    numeric_features = artifact.get("numeric_features", [])
+    categorical_features = artifact.get("categorical_features", [])
+    category_options = artifact.get("category_options", {})
     numeric_stats = artifact.get("numeric_stats", {})
-    n_clusters = artifact.get("n_clusters", 4)
-    silhouette = artifact.get("silhouette", "N/A")
-    total_records = artifact.get("total_records", 1226)
+    metrics = artifact.get("metrics", {})
+    total_cases = artifact.get("total_cases", 1226)
 
-    st.markdown("### Ingrese los datos del evento epidemiológico a evaluar:")
-    st.info("El modelo normaliza las variables y asigna el caso al perfil epidemiológico y nivel de prioridad correspondiente.")
+    st.markdown("### Ingrese los datos del paciente y del evento notificado:")
+    st.info("El modelo evalúa los factores de riesgo clínico y estima la probabilidad de requerir internación hospitalaria.")
 
     user_inputs = {}
 
-    with st.form("epidemiology_form"):
-        col1, col2 = st.columns(2)
+    with st.form("triage_form"):
+        st.subheader("📋 Información del Evento y Demografía")
+        c1, c2 = st.columns(2)
+
+        # Evento reportado
+        event_opts = category_options.get("evento_reportado", ["MALARIA", "DENGUE"])
+        user_inputs["evento_reportado"] = c1.selectbox(
+            "🦠 Evento Epidemiológico Reportado",
+            options=event_opts,
+            index=0 if "MALARIA" not in event_opts else event_opts.index("MALARIA")
+        )
 
         # Edad del paciente
-        stats_edad = numeric_stats.get("edad", {"min": 0.0, "max": 90.0, "median": 20.0})
-        user_inputs["edad"] = col1.number_input(
+        stats_edad = numeric_stats.get("edad", {"median": 20.0})
+        user_inputs["edad"] = float(c2.number_input(
             "👶/👵 Edad del Paciente (años)",
             min_value=0.0,
             max_value=110.0,
             value=float(stats_edad.get("median", 20.0)),
-            step=1.0,
-            help="Edad cronológica en años cumplidos"
-        )
-
-        # Semana epidemiológica del año
-        user_inputs["semana_epidemiologica"] = col2.slider(
-            "📅 Semana Epidemiológica del Reporte",
-            min_value=1,
-            max_value=52,
-            value=25,
-            help="Semana del calendario epidemiológico (1 a 52) en la que ocurrió la notificación"
-        )
-
-        col3, col4 = st.columns(2)
-
-        # Estrato socioeconómico
-        user_inputs["estrato"] = float(col3.selectbox(
-            "🏠 Estrato Socioeconómico",
-            options=[1, 2, 3, 4],
-            index=0,
-            help="Estrato de residencia registrado en la ficha epidemiológica"
+            step=1.0
         ))
 
-        # Hospitalización
-        hosp_choice = col4.selectbox(
-            "🚑 ¿Requirió Hospitalización?",
-            options=["NO (Manejo ambulatorio)", "SI (Internación hospitalaria)"],
-            index=0,
-            help="Indica si el paciente requirió internación en centro hospitalario"
-        )
-        user_inputs["hospitalizado"] = 1.0 if hosp_choice.startswith("SI") else 0.0
+        c3, c4, c5 = st.columns(3)
+        # Semana epidemiológica
+        user_inputs["semana_epidemiologica"] = float(c3.slider(
+            "📅 Semana Epidemiológica (1-52)",
+            min_value=1,
+            max_value=52,
+            value=25
+        ))
 
-        submitted = st.form_submit_button("🔍 Caracterizar Evento Epidemiológico", use_container_width=True)
+        # Estrato
+        user_inputs["estrato"] = float(c4.selectbox(
+            "🏠 Estrato Socioeconómico",
+            options=[1.0, 2.0, 3.0, 4.0],
+            index=0
+        ))
+
+        # Sexo
+        user_inputs["sexo"] = c5.selectbox(
+            "⚧ Sexo",
+            options=category_options.get("sexo", ["F", "M"])
+        )
+
+        st.subheader("🛡️ Factores de Vulnerabilidad y Seguridad Social")
+        c6, c7 = st.columns(2)
+
+        # Régimen de salud con etiquetas amigables
+        regimen_map = {
+            "S": "S - Subsidiado",
+            "C": "C - Contributivo",
+            "I": "I - Indeterminado / Sin afiliación",
+            "E": "E - Especial / Magisterio",
+            "P": "P - Excepción / Policía / FFMM",
+            "N": "N - No asegurado"
+        }
+        reg_opts = category_options.get("regimen_salud", ["S", "C", "I"])
+        selected_reg = c6.selectbox(
+            "🏥 Régimen de Seguridad Social",
+            options=reg_opts,
+            format_func=lambda x: regimen_map.get(x, x)
+        )
+        user_inputs["regimen_salud"] = selected_reg
+
+        # Gestante
+        user_inputs["gestante"] = c7.selectbox(
+            "🤰 ¿Paciente Gestante?",
+            options=category_options.get("gestante", ["NO", "SI"])
+        )
+
+        c8, c9 = st.columns(2)
+        # Grupo de riesgo
+        user_inputs["grupo_riesgo"] = c8.selectbox(
+            "⚠️ ¿Pertenece a Grupo de Riesgo Comunitario?",
+            options=category_options.get("grupo_riesgo", ["SI", "NO"]),
+            index=0
+        )
+
+        # Pertenencia indígena
+        user_inputs["indigena"] = c9.selectbox(
+            "🌿 ¿Pertenencia Étnica Indígena?",
+            options=category_options.get("indigena", ["NO", "SI"]),
+            index=0
+        )
+
+        submitted = st.form_submit_button("🔮 Evaluar Riesgo y Predecir Hospitalización", use_container_width=True)
 
     if submitted:
-        # Vector ordenado según las características del modelo
+        # Construir DataFrame en el orden exacto de características
         X_new = pd.DataFrame([user_inputs], columns=features)
 
         try:
-            # Inferencia a través del Pipeline
-            cluster_id = int(model.predict(X_new)[0])
-            cluster_info = cluster_descriptions.get(cluster_id, "Sin descripción disponible.")
+            # Predicción con el Pipeline
+            pred = str(model.predict(X_new)[0])
+            probs = model.predict_proba(X_new)[0]
+            classes = list(model.classes_)
+            prob_dict = {cls: prob for cls, prob in zip(classes, probs)}
+
+            prob_si = prob_dict.get("SI", 0.0)
+            prob_no = prob_dict.get("NO", 0.0)
 
             st.markdown("---")
-            st.subheader(f"🎯 Perfil Asignado: `Clúster {cluster_id}`")
-            
-            # Badge de alerta según severidad
-            if cluster_id == 2:
-                st.error(f"🚨 **Alerta de Alta Severidad / Hospitalario:** {cluster_info}")
-            elif cluster_id == 3:
-                st.warning(f"⚠️ **Alerta Urbana / Zoonosis:** {cluster_info}")
+            st.subheader("📋 Dictamen del Modelo de Triaje")
+
+            if pred == "SI":
+                st.error(
+                    "🚨 **ALERTA CLÍNICA: Paciente con Alto Riesgo de Requerir Hospitalización**\n\n"
+                    "*Recomendación:* Se sugiere priorizar asignación de cama hospitalaria, aislamiento según protocolo "
+                    "y valoración médica presencial de urgencia."
+                )
             else:
-                st.success(f"✅ **Manejo Comunitario / Ambulatorio:** {cluster_info}")
-
-            # Patologías frecuentes en este clúster
-            events = top_events.get(cluster_id, {})
-            if events:
-                st.markdown("#### 🦠 Patologías y Eventos Frecuentes en este Grupo:")
-                event_items = [f"**{k}** ({v} casos)" for k, v in events.items()]
-                st.markdown(" • " + "  \n • ".join(event_items))
-
-            # Comparativa métrica frente al promedio del clúster
-            if cluster_id in profiles:
-                c_prof = profiles[cluster_id]
-                st.markdown("#### 📊 Comparativa vs Promedios del Clúster:")
-                m1, m2, m3 = st.columns(3)
-                m1.metric(
-                    label="Edad del Paciente",
-                    value=f"{user_inputs['edad']:.0f} años",
-                    delta=f"{user_inputs['edad'] - c_prof['edad']:+.1f} vs promedio ({c_prof['edad']} a)"
-                )
-                m2.metric(
-                    label="Semana del Brote",
-                    value=f"Semana {user_inputs['semana_epidemiologica']:.0f}",
-                    delta=f"{user_inputs['semana_epidemiologica'] - c_prof['semana_epidemiologica']:+.1f} vs media (Sem {c_prof['semana_epidemiologica']})"
-                )
-                m3.metric(
-                    label="Estrato",
-                    value=f"Estrato {user_inputs['estrato']:.0f}",
-                    delta=f"{user_inputs['estrato'] - c_prof['estrato']:+.2f} vs media ({c_prof['estrato']})"
+                st.success(
+                    "✅ **MANEJO AMBULATORIO SUGERIDO**\n\n"
+                    "*Recomendación:* El paciente presenta un perfil compatible con manejo domiciliario controlado, "
+                    "prescripción de tratamiento ambulatorio y seguimiento epidemiológico comunitario."
                 )
 
-            with st.expander("Ver vector de características procesado"):
+            # Visualización de probabilidades
+            st.markdown("#### 🎯 Distribución de Certeza del Modelo:")
+            p_col1, p_col2 = st.columns(2)
+            p_col1.metric("Probabilidad de Hospitalización (SI)", f"{prob_si * 100:.1f}%")
+            p_col1.progress(float(prob_si))
+
+            p_col2.metric("Probabilidad de Manejo Ambulatorio (NO)", f"{prob_no * 100:.1f}%")
+            p_col2.progress(float(prob_no))
+
+            with st.expander("Ver vector de datos enviado al Pipeline de Scikit-Learn"):
                 st.dataframe(X_new)
 
         except Exception as e:
-            st.error(f"Error al calcular la asignación del clúster: {e}")
+            st.error(f"Error al procesar la predicción: {e}")
 
-    # Barra lateral técnica y contexto
+    # Barra lateral
     with st.sidebar:
         st.header("📌 Parámetros del Modelo")
-        st.write(f"- **Algoritmo:** K-Means Clustering")
-        st.write(f"- **Número de Clústers (k):** {n_clusters}")
-        st.write(f"- **Silhouette Score:** `{silhouette}`")
-        st.write(f"- **Casos Históricos Analizados:** `{total_records:,}`")
+        st.write("- **Tipo:** Clasificación Supervisada")
+        st.write("- **Algoritmo:** Regresión Logística (Class-Weighted)")
+        st.write(f"- **F1-Score Ponderado:** `{metrics.get('f1_score', 0.7364)}`")
+        st.write(f"- **Exactitud (Accuracy):** `{metrics.get('accuracy', 0.7276) * 100:.1f}%`")
+        st.write(f"- **Casos Históricos:** `{total_cases:,}`")
         st.markdown("---")
-        st.subheader("🌐 Fuente de Datos Oficial")
+        st.subheader("🌐 Fuente Oficial")
         st.markdown("[Eventos Epidemiológicos | datos.gov.co](https://www.datos.gov.co/Salud-y-Protecci-n-Social/Eventos-Epidemiol-gicos/afi7-frbs/about_data)")
-        st.caption("Sistema de Vigilancia en Salud Pública (SIVIGILA), Ministerio de Salud y Protección Social de Colombia.")
-        st.markdown("---")
-        st.subheader("📖 Clústeres Definidos")
-        for cid, desc in cluster_descriptions.items():
-            st.markdown(f"**Clúster {cid}:** {desc[:80]}...")
+        st.caption("Sistema de Vigilancia en Salud Pública (SIVIGILA) - Ministerio de Salud.")
 
 
 if __name__ == "__main__":
