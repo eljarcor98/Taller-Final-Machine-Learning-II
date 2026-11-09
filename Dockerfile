@@ -12,5 +12,5 @@ COPY . .
 # Exponer el puerto predeterminado de Streamlit
 EXPOSE 8501
 
-# Comando de inicio del servidor Streamlit escuchando en todas las interfaces de red
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+# Comando de inicio compatible con GCP (puerto 8501) y plataformas PaaS como Render/Koyeb (variable $PORT)
+CMD ["sh", "-c", "streamlit run app.py --server.address=0.0.0.0 --server.port=${PORT:-8501}"]
