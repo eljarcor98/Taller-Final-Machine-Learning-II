@@ -1,4 +1,4 @@
-# Proyecto Final: Del Dataset al Despliegue en Producción (MLOps con Streamlit y Docker)
+# Taller Final: Del Dataset al Despliegue en Producción (MLOps con Streamlit y Docker)
 
 ## 1. Información General
 * **Proyecto:** Plataforma de Analítica y Triaje Epidemiológico con Machine Learning
