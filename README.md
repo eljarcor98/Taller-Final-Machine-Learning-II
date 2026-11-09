@@ -1,184 +1,194 @@
-# Plataforma Analítica de Vigilancia Epidemiológica (SIVIGILA) con Streamlit, Docker y GCP
+# Proyecto Final: Del Dataset al Despliegue en Producción (MLOps con Streamlit y Docker)
 
 ## 1. Información General
-* **Título del Proyecto:** Plataforma Analítica Integral de Inteligencia Epidemiológica
-* **Enfoque Desarrollado:** Solución Dual Unificada (Ruta A: Aprendizaje Supervisado + Ruta B: Aprendizaje No Supervisado)
-* **Autores:** Arnold Santiago Torres (@eljarcor98) & [Compañero/a de pareja]
-* **Asignatura:** Machine Learning 2
-* **Repositorio Oficial:** [github.com/eljarcor98/Taller-Final-Machine-Learning-II](https://github.com/eljarcor98/Taller-Final-Machine-Learning-II)
+* **Proyecto:** Plataforma de Analítica y Triaje Epidemiológico con Machine Learning
+* **Integrantes:** Arnold Santiago Torres (@eljarcor98) y compañero de pareja
+* **Materia:** Machine Learning 2
+* **Repositorio en GitHub:** https://github.com/eljarcor98/Taller-Final-Machine-Learning-II
 
 ---
 
-## 2. Objetivo y Descripción del Dataset
-* **Objetivo Institucional / Salud Pública:** Proveer una herramienta de apoyo a la toma de decisiones clínicas y gestión poblacional mediante dos capacidades analíticas complementarias:
-  1. **Triaje Predictivo (Supervisado):** Estimar la probabilidad de requerir hospitalización para optimizar la asignación preventiva de camas e internación urgente.
-  2. **Caracterización Poblacional (No Supervisado):** Agrupar y segmentar los casos notificados en perfiles epidemiológicos homogéneos según demografía, estacionalidad y vulnerabilidad.
-* **Unidad de Observación:** Notificación individual de evento de salud pública reportada al Sistema de Vigilancia en Salud Pública (SIVIGILA).
-* **Origen de los datos:** Portal Nacional de Datos Abiertos de Colombia ([datos.gov.co - Eventos Epidemiológicos](https://www.datos.gov.co/Salud-y-Protecci-n-Social/Eventos-Epidemiol-gicos/afi7-frbs/about_data)).
-* **Ubicación en el repositorio:** `data/datos.csv` (1,226 casos notificados).
+## 2. ¿De qué trata este proyecto y qué datos usamos?
+
+En este proyecto construimos una solución completa de Machine Learning de punta a punta. En lugar de quedarnos solo en un notebook, llevamos el modelo hasta una aplicación web interactiva empaquetada con Docker y lista para producción en la nube.
+
+Para que el proyecto tuviera impacto real, trabajamos con datos oficiales de Colombia tomados del portal **datos.gov.co**: el conjunto de datos de **Eventos Epidemiológicos (SIVIGILA)** del Ministerio de Salud y Protección Social. 
+
+* **¿Qué representa cada fila del dataset?** Representa un caso o notificación individual de un evento de salud pública atendido por una IPS (hospital o centro de salud).
+* **Tamaño del dataset:** 1.226 registros reales con variables demográficas, clínicas y sociales.
+* **El reto que resolvemos:** Diseñamos una herramienta que ayuda al personal médico y epidemiológico en dos tareas clave:
+  1. **Predecir si un paciente necesita hospitalización urgente o manejo ambulatorio**, ayudando a priorizar camas y recursos clínicos.
+  2. **Segmentar los casos en grupos o perfiles**, para entender qué tipos de pacientes y enfermedades se concentran en cada etapa del año.
 
 ---
 
-## 3. Variables Utilizadas
+## 3. Variables que utilizamos
 
-### Modelo Supervisado (Triaje de Hospitalización)
-* **Variable Objetivo (`TARGET`):** `hospitalizacion` (`SI`: 30.7%, `NO`: 69.3%).
-* **Variables Numéricas:** `edad`, `semana_epidemiologica`, `estrato`.
-* **Variables Categóricas:** `evento_reportado`, `sexo`, `regimen_salud`, `gestante`, `grupo_riesgo`, `indigena`.
+Para evitar sesgos y problemas de fuga de datos (*data leakage*), eliminamos columnas que no aportan a la predicción antes de tiempo (como códigos internos, identificadores y fechas largas en texto). Nos quedamos con las variables que un médico o epidemiólogo tiene a la mano al momento de atender al paciente:
 
-### Modelo No Supervisado (Segmentación K-Means)
-* **Variables de Agrupamiento:** `edad`, `semana_epidemiologica`, `estrato`, `hospitalizado_num` (indicador 0/1).
+### Para el modelo supervisado (Predecir Hospitalización):
+* **Variable objetivo a predecir (`TARGET`):** `hospitalizacion` (valores: `SI` o `NO`). En los datos, el 30.7% de los casos requirió hospitalización y el 69.3% manejo ambulatorio.
+* **Variables numéricas:**
+  * `edad`: Edad del paciente en años cumplidos (0 a 110 años).
+  * `semana_epidemiologica`: Semana del año en que se reporta el caso (semanas 1 a 52).
+  * `estrato`: Estrato socioeconómico de la vivienda del paciente (1 a 4).
+* **Variables categóricas:**
+  * `evento_reportado`: La enfermedad o evento diagnosticado (Malaria, Dengue, Desnutrición aguda, Morbilidad materna, Agresiones por animales con riesgo de rabia, etc.).
+  * `sexo`: Sexo biológico (`F` o `M`).
+  * `regimen_salud`: Régimen de seguridad social (`S`: Subsidiado, `C`: Contributivo, `I`: Indeterminado, etc.).
+  * `gestante`: Si la paciente está en embarazo (`SI` o `NO`).
+  * `grupo_riesgo`: Si pertenece a algún grupo poblacional de riesgo comunitario (`SI` o `NO`).
+  * `indigena`: Si tiene pertenencia étnica indígena (`SI` o `NO`).
 
----
-
-## 4. Preparación de Datos y Pipelines de Scikit-Learn
-Para garantizar total reproducibilidad y prevenir la fuga de datos (*data leakage*), ambos modelos se encapsulan en Pipelines independientes:
-1. **Pipeline Supervisado:**
-   * Rama numérica: `SimpleImputer(strategy="median")` + `StandardScaler()`.
-   * Rama categórica: `SimpleImputer(strategy="most_frequent")` + `OneHotEncoder(handle_unknown="ignore")`.
-   * Estimador: `LogisticRegression(class_weight="balanced", max_iter=1000, random_state=42)`.
-2. **Pipeline No Supervisado:**
-   * Imputación mediana + `StandardScaler()`.
-   * Estimador: `KMeans(n_clusters=4, random_state=42, n_init="auto")`.
-
----
-
-## 5. Justificación y Métricas de Rendimiento
-
-### Modelo Supervisado (Clasificación de Hospitalización)
-* **F1-Score Ponderado:** `0.7364`
-* **Exactitud Global (Accuracy):** `72.76%`
-* **Sensibilidad / Recall para Hospitalización (`SI`):** `72.0%` (alta capacidad para identificar casos que requieren internación).
-* **Precisión para Manejo Ambulatorio (`NO`):** `86.0%`
-* **Justificación:** El balanceo de clases prioriza la reducción de falsos negativos críticos en salud pública, generando probabilidades calibradas mediante `predict_proba()`.
-
-### Modelo No Supervisado (Clustering K-Means)
-* **Número de Clusters ($k$):** `4`
-* **Silhouette Score:** `0.3969` (estructura diferenciada en el espacio normalizado).
-* **Inercia intra-cluster (WCSS):** `2011.28`
-* **Perfiles Identificados:**
-  * **Clúster 0 (45.1%):** Población Pediátrica y Juvenil Ambulatoria (Edad media: 12.2 años, Estrato 1, 0% Hospitalizados).
-  * **Clúster 1 (15.4%):** Adultos Mayores Vulnerables (Edad media: 51.9 años, Estrato 1, 15.3% Hospitalizados).
-  * **Clúster 2 (26.3%):** Casos Críticos de Urgencia Hospitalaria (Edad media: 14.4 años, 100% Hospitalizados, Desnutrición y malaria severa).
-  * **Clúster 3 (13.1%):** Población Urbana Estrato Medio / Zoonosis (Edad media: 32.5 años, Estrato 2.1, Brotes de Dengue y zoonosis).
+### Para el modelo no supervisado (Clustering con K-Means):
+* Usamos las variables numéricas y cuantitativas: `edad`, `semana_epidemiologica`, `estrato` y la condición de `hospitalizado` (0 para ambulatorio, 1 para hospitalizado).
 
 ---
 
-## 6. Arquitectura de la Aplicación en Streamlit
-La aplicación [`app.py`](app.py) integra ambos modelos en un solo despliegue interactivo mediante pestañas (`st.tabs`):
-* **Pestaña 1 (Triaje Clínico Supervisado):** Formulario clínico completo, dictamen de hospitalización o manejo ambulatorio, y visualización de probabilidades con barras de progreso.
-* **Pestaña 2 (Segmentación No Supervisada):** Formulario simplificado, asignación de clúster K-Means, descripción cualitativa del perfil y comparación métrica frente a los promedios del clúster.
+## 4. ¿Cómo preparamos los datos? (Pipeline de Scikit-Learn)
+
+Para asegurarnos de que el modelo sea 100% reproducible y que Streamlit no falle con datos nuevos, metimos todo el preprocesamiento dentro de un **`Pipeline`** unificado usando `ColumnTransformer`:
+
+1. **Variables numéricas:** Si llega algún valor faltante, lo completamos con la mediana (`SimpleImputer`). Luego escalamos los valores con `StandardScaler` (media 0 y varianza 1) para que variables con números grandes (como las semanas 1-52) no dominen a variables pequeñas (como el estrato 1-4).
+2. **Variables categóricas:** Si falta algún dato, colocamos la categoría más frecuente. Luego aplicamos `OneHotEncoder(handle_unknown="ignore")`, lo que permite que si en el futuro llega una categoría no vista, la app no se caiga sino que la ignore de forma segura.
 
 ---
 
-## 7. Instrucciones de Reproducción Local
+## 5. Modelos elegidos y resultados obtenidos
 
-### Paso 1: Instalar dependencias
-```bash
-pip install -r requirements.txt
-```
+Decidimos integrar **ambos enfoques (supervisado y no supervisado)** para demostrar que la misma arquitectura de MLOps sirve para cualquier tipo de problema:
 
-### Paso 2: Entrenar los modelos y generar el artefacto consolidado
-```bash
-python train.py
-```
-> Entrena simultáneamente el modelo supervisado y el no supervisado, guardando ambos pipelines en `model.joblib`.
+### Modelo 1: Clasificación Supervisada (Regresión Logística con Balanceo de Clases)
+* **¿Por qué lo elegimos?** Porque en salud pública es mucho más grave cometer un falso negativo (enviar a casa a una persona que en realidad necesitaba hospitalización urgente). Usamos el parámetro `class_weight="balanced"` para que el algoritmo le dé la misma importancia a la clase minoritaria (`SI`), y además porque nos permite calcular probabilidades reales y calibradas con `predict_proba()`.
+* **Resultados en el conjunto de prueba (20% de los datos que el modelo nunca vio):**
+  * **F1-Score ponderado:** `0.7364`
+  * **Exactitud global (Accuracy):** `72.76%`
+  * **Sensibilidad / Recall para Hospitalización (`SI`):** **`72.0%`** (detecta 54 de cada 75 pacientes que requerían hospitalización).
+  * **Precisión para Ambulatorio (`NO`):** **`86.0%`**
 
-### Paso 3: Ejecutar la aplicación web
-```bash
-python -m streamlit run app.py
-```
-Acceder en el navegador a: `http://localhost:8501`.
-
----
-
-## 8. Despliegue con Docker
-
-### Paso 1: Construir la imagen Docker
-```bash
-docker build -t ml-streamlit-app .
-```
-
-### Paso 2: Ejecutar el contenedor
-```bash
-docker run -d --name ml-streamlit --restart unless-stopped -p 8501:8501 ml-streamlit-app
-```
-
-### Paso 3: Verificar estado y logs
-```bash
-docker ps
-docker logs ml-streamlit
-```
+### Modelo 2: Agrupamiento No Supervisado (K-Means con k=4)
+* **¿Por qué lo elegimos?** K-Means es ideal para producción porque calcula centroides fijos durante el entrenamiento y permite usar `.predict()` sobre pacientes nuevos.
+* **Resultados:**
+  * **Silhouette Score:** `0.3969` (muestra grupos bien separados y consistentes).
+  * **Inercia:** `2011.28`
+* **Los 4 perfiles que descubrió el algoritmo:**
+  * **Clúster 0 (45.1% de los casos):** Niños y jóvenes ambulatorios (edad promedio 12 años, estrato 1, 0% hospitalizados). Concentra casos leves de malaria y seguimiento social.
+  * **Clúster 1 (15.4% de los casos):** Adultos mayores vulnerables (edad promedio 52 años, estrato 1, 15% hospitalizados). Afectados por malaria y dengue en edad adulta.
+  * **Clúster 2 (26.3% de los casos):** Urgencias críticas (edad promedio 14 años, estrato 1, **100% hospitalizados**). Casos graves de desnutrición aguda y malaria complicada.
+  * **Clúster 3 (13.1% de los casos):** Casos urbanos de estrato medio (edad promedio 33 años, estrato 2 a 3). Concentra brotes de dengue urbano y mordeduras de animales (riesgo de rabia).
 
 ---
 
-## 9. Despliegue en Google Cloud Platform (Compute Engine)
+## 6. La Aplicación Web en Streamlit (`app.py`)
 
-1. En Google Cloud Console, ir a **Compute Engine** $\rightarrow$ **Instancias de VM** $\rightarrow$ **Crear instancia**.
-2. Seleccionar Linux **Ubuntu 24.04 LTS**, serie económica `e2-micro` o `e2-small`.
-3. Asignar la etiqueta de red `streamlit-server` y confirmar dirección IP externa.
-4. Crear regla de Firewall en Cloud Shell:
+Creamos una aplicación limpia, profesional y sin emojis innecesarios, organizada en dos pestañas principales:
+
+* **Pestaña 1 (Triaje Clínico Supervisado):** El usuario ingresa la patología, edad, estrato y antecedentes del paciente. Al hacer clic en "Evaluar Caso Clínico", la app entrega un dictamen formal (`Hospitalización Requerida` o `Manejo Ambulatorio Sugerido`) junto con barras de porcentaje mostrando la probabilidad exacta de cada resultado.
+* **Pestaña 2 (Caracterización K-Means):** Permite ingresar los datos demográficos y asigna automáticamente al paciente a uno de los 4 grupos, mostrando una comparativa numérica de sus datos frente al promedio del clúster.
+
+> **Regla de oro cumplida:** La aplicación **nunca vuelve a entrenar el modelo**. Carga el archivo `model.joblib` directamente al inicio, respondiendo en milisegundos.
+
+---
+
+## 7. Cómo ejecutar el proyecto en tu computador local
+
+Si quieres probarlo en tu propia máquina:
+
+1. **Instalar las librerías necesarias:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Entrenar los modelos (opcional, ya dejamos el `model.joblib` listo):**
+   ```bash
+   python train.py
+   ```
+
+3. **Iniciar la aplicación en Streamlit:**
+   ```bash
+   python -m streamlit run app.py
+   ```
+   Se abrirá en tu navegador en: `http://localhost:8501`.
+
+---
+
+## 8. Cómo empaquetar y correr con Docker
+
+Configuramos un `Dockerfile` basado en `python:3.12-slim`, optimizando las capas para que la imagen se construya rápido:
+
+1. **Construir la imagen de Docker:**
+   ```bash
+   docker build -t ml-streamlit-app .
+   ```
+
+2. **Iniciar el contenedor en segundo plano:**
+   ```bash
+   docker run -d --name ml-streamlit --restart unless-stopped -p 8501:8501 ml-streamlit-app
+   ```
+
+3. **Revisar que esté corriendo y ver los logs:**
+   ```bash
+   docker ps
+   docker logs ml-streamlit
+   ```
+
+---
+
+## 9. Despliegue en la Nube (Google Cloud Platform)
+
+Para poner la aplicación disponible en Internet mediante una Máquina Virtual de GCP Compute Engine:
+
+1. En la consola de Google Cloud, crea una máquina virtual con sistema operativo **Ubuntu 24.04 LTS** (tipo de máquina económica como `e2-micro` o `e2-small`).
+2. Asígnale la etiqueta de red `streamlit-server` y confirma que tenga IP externa.
+3. Abre el puerto 8501 en el firewall ejecutando esto en la Cloud Shell de GCP:
    ```bash
    gcloud compute firewall-rules create allow-streamlit-8501 \
        --allow=tcp:8501 \
        --direction=INGRESS \
        --target-tags=streamlit-server
    ```
-5. Acceder por SSH e instalar Docker y Git:
+4. Entra por la terminal **SSH** de la máquina virtual y corre estos comandos:
    ```bash
-   sudo apt update
-   sudo apt install -y docker.io git
+   # Instalar Docker y Git
+   sudo apt update && sudo apt install -y docker.io git
    sudo systemctl enable --now docker
    sudo usermod -aG docker $USER
-   ```
-6. Clonar el repositorio y desplegar:
-   ```bash
+
+   # Clonar nuestro repositorio
    git clone https://github.com/eljarcor98/Taller-Final-Machine-Learning-II.git
    cd Taller-Final-Machine-Learning-II
+
+   # Construir y levantar el contenedor
    docker build -t ml-streamlit-app .
    docker run -d --name ml-streamlit --restart unless-stopped -p 8501:8501 ml-streamlit-app
    ```
-7. Abrir en el navegador: `http://<IP_EXTERNA_VM>:8501`.
+5. Abre la aplicación en tu navegador con la IP pública de la máquina:
+   `http://<IP_EXTERNA_DE_TU_VM>:8501`
 
-### 9.1 Despliegue Alternativo en Servidor Físico / Raspberry Pi (Edge Computing)
-1. En la terminal de la Raspberry Pi (ARM64):
-   ```bash
-   sudo apt update && sudo apt install -y docker.io git
-   git clone https://github.com/eljarcor98/Taller-Final-Machine-Learning-II.git
-   cd Taller-Final-Machine-Learning-II
-   docker build -t ml-streamlit-app .
-   docker run -d --name ml-streamlit --restart unless-stopped -p 8501:8501 ml-streamlit-app
-   ```
-2. Para acceso público remoto seguro sin abrir puertos en el router:
-   ```bash
-   npx localtunnel --port 8501
-   # O mediante Cloudflare Tunnel: cloudflared tunnel --url http://localhost:8501
-   ```
-
-### 9.2 Despliegue Alternativo PaaS (Render.com / Koyeb)
-1. Conectar la cuenta de GitHub con [Render.com](https://render.com) o [Koyeb.com](https://www.koyeb.com).
-2. Crear un nuevo servicio apuntando a `Taller-Final-Machine-Learning-II`.
-3. Seleccionar el entorno **Docker** (detectará automáticamente el `Dockerfile` y la variable de puerto `$PORT`).
-4. La plataforma construirá el contenedor y asignará una URL pública segura con HTTPS.
+### Alternativas de despliegue adicionales:
+* **En una Raspberry Pi o servidor físico local:** Clonas el repo y corres los mismos comandos de Docker. Para sacarlo a internet sin abrir puertos en el router, usas `npx localtunnel --port 8501` o Cloudflare Tunnel.
+* **En Render.com o Koyeb:** Conectas el repositorio de GitHub, eliges el entorno **Docker** y el servicio compila y levanta la app automáticamente con HTTPS gratis.
 
 ---
 
-## 10. Casos de Prueba para Evaluación Cruzada
+## 10. Casos de Prueba para la Evaluación Cruzada
 
-Para que otra pareja compruebe la reproducibilidad completa de ambos modelos en la interfaz:
+Para la prueba entre parejas, la otra pareja debe clonar el repositorio y probar estos 4 casos en la aplicación web para comprobar que arroja exactamente los mismos resultados:
 
 ### Pruebas en Pestaña 1 (Modelo Supervisado):
-* **Caso A (Alta Complejidad - Hospitalización Requerida):**
-  * Entradas: `Edad = 28`, `Semana = 20`, `Estrato = 1`, `Evento = MORBILIDAD MATERNA EXTREMA`, `Sexo = F`, `Régimen = S`, `Gestante = SI`, `Grupo de Riesgo = SI`, `Indígena = NO`
-  * Salida Esperada: **`Clase SI`** (Probabilidad de Hospitalización: **~88.8%**).
-* **Caso B (Manejo Ambulatorio):**
-  * Entradas: `Edad = 35`, `Semana = 35`, `Estrato = 2`, `Evento = AGRESIONES POR ANIMALES POTENCIALMENTE TRANSMISORES DE RABIA`, `Sexo = M`, `Régimen = C`, `Gestante = NO`, `Grupo de Riesgo = NO`, `Indígena = NO`
-  * Salida Esperada: **`Clase NO`** (Probabilidad de Manejo Ambulatorio: **~93.6%**).
+* **Caso 1: Paciente de alta gravedad (Gestante con complicación materna):**
+  * Entradas: `Edad = 28`, `Semana = 20`, `Estrato = 1`, `Evento = MORBILIDAD MATERNA EXTREMA`, `Sexo = F`, `Régimen = S`, `Gestante = SI`, `Grupo de Riesgo = SI`, `Indígena = NO`.
+  * **Resultado esperado:** **`Clase SI`** (Dictamen de Hospitalización Requerida, probabilidad cercana al **`88.8%`**).
+
+* **Caso 2: Paciente para manejo ambulatorio (Mordedura de animal / sospecha de rabia):**
+  * Entradas: `Edad = 35`, `Semana = 35`, `Estrato = 2`, `Evento = AGRESIONES POR ANIMALES POTENCIALMENTE TRANSMISORES DE RABIA`, `Sexo = M`, `Régimen = C`, `Gestante = NO`, `Grupo de Riesgo = NO`, `Indígena = NO`.
+  * **Resultado esperado:** **`Clase NO`** (Dictamen de Manejo Ambulatorio Sugerido, probabilidad de ambulatorio cercana al **`93.6%`**).
 
 ### Pruebas en Pestaña 2 (Modelo No Supervisado - K-Means):
-* **Caso C (Población Pediátrica Ambulatoria):**
-  * Entradas: `Edad = 8`, `Semana = 28`, `Estrato = 1`, `Condición = Manejo ambulatorio (0)`
-  * Salida Esperada: **`Clúster 0`** (Población Pediátrica y Juvenil Ambulatoria).
-* **Caso D (Urgencia Hospitalaria):**
-  * Entradas: `Edad = 15`, `Semana = 20`, `Estrato = 1`, `Condición = Internación hospitalaria (1)`
-  * Salida Esperada: **`Clúster 2`** (Casos Críticos de Urgencia Hospitalaria).
+* **Caso 3: Paciente pediátrico ambulatorio:**
+  * Entradas: `Edad = 8`, `Semana = 28`, `Estrato = 1`, `Condición = Manejo ambulatorio (0)`.
+  * **Resultado esperado:** **`Clúster 0`** (Población Pediátrica y Juvenil Ambulatoria).
+
+* **Caso 4: Paciente hospitalizado de urgencia:**
+  * Entradas: `Edad = 15`, `Semana = 20`, `Estrato = 1`, `Condición = Internación hospitalaria (1)`.
+  * **Resultado esperado:** **`Clúster 2`** (Casos Críticos de Urgencia Hospitalaria).
