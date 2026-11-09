@@ -65,8 +65,8 @@ Para asegurar total reproducibilidad y evitar diferencias entre entrenamiento e 
 ## 6. Interpretación de la Salida en la Aplicación
 La interfaz en Streamlit recibe las variables del nuevo caso y entrega:
 1. **Dictamen Clínico:**
-   * 🚨 **ALERTA CLÍNICA (Hospitalización Sugerida):** Recomienda priorizar asignación de cama y valoración médica urgente.
-   * ✅ **MANEJO AMBULATORIO SUGERIDO:** Recomienda tratamiento domiciliario y seguimiento comunitario.
+   * **Hospitalización Requerida (Clase SI):** Recomienda priorizar la disponibilidad de cama hospitalaria y valoración médica presencial de urgencia.
+   * **Manejo Ambulatorio Sugerido (Clase NO):** Recomienda tratamiento domiciliario controlado y seguimiento epidemiológico comunitario.
 2. **Distribución de Certeza:** Visualización gráfica mediante métricas y barras de progreso del porcentaje de probabilidad de internación (`Probabilidad SI`) vs manejo ambulatorio (`Probabilidad NO`).
 
 ---

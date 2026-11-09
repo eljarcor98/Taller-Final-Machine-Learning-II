@@ -189,7 +189,7 @@ def main() -> None:
     df = load_and_clean_data()
     artifact = train_model(df)
     joblib.dump(artifact, MODEL_PATH)
-    print(f"\n[✓] Artefacto guardado exitosamente en: {MODEL_PATH.resolve()}")
+    print(f"\n[INFO] Artefacto guardado exitosamente en: {MODEL_PATH.resolve()}")
 
 
 if __name__ == "__main__":
