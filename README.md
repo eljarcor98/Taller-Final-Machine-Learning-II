@@ -4,13 +4,14 @@
 * **Proyecto:** Plataforma de Analítica y Triaje Epidemiológico con Machine Learning
 * **Integrantes:** Arnold Santiago Torres (@eljarcor98) y compañero de pareja
 * **Materia:** Machine Learning 2
-* **Repositorio en GitHub:** https://github.com/eljarcor98/Taller-Final-Machine-Learning-II
+* **Repositorio Oficial en GitHub:** https://github.com/eljarcor98/Taller-Final-Machine-Learning-II
+* **Aplicación en Vivo (Despliegue Público Activo):** [https://aircraft-bruce-mark-zone.trycloudflare.com/](https://aircraft-bruce-mark-zone.trycloudflare.com/)
 
 ---
 
 ## 2. ¿De qué trata este proyecto y qué datos usamos?
 
-En este proyecto construimos una solución completa de Machine Learning de punta a punta. En lugar de quedarnos solo en un notebook, llevamos el modelo hasta una aplicación web interactiva empaquetada con Docker y lista para producción en la nube.
+En este proyecto construimos una solución completa de Machine Learning de punta a punta. En lugar de quedarnos solo en un notebook, llevamos el modelo hasta una aplicación web interactiva empaquetada con Docker y desplegada públicamente en un servidor en vivo.
 
 Para que el proyecto tuviera impacto real, trabajamos con datos oficiales de Colombia tomados del portal **datos.gov.co**: el conjunto de datos de **Eventos Epidemiológicos (SIVIGILA)** del Ministerio de Salud y Protección Social. 
 
@@ -134,46 +135,84 @@ Configuramos un `Dockerfile` basado en `python:3.12-slim`, optimizando las capas
 
 ---
 
-## 9. Despliegue en la Nube (Google Cloud Platform)
+## 9. Despliegue en Producción y Servidores Cloud / Edge
 
-Para poner la aplicación disponible en Internet mediante una Máquina Virtual de GCP Compute Engine:
+### 9.1 Despliegue Activo en Producción: Servidor Edge en Raspberry Pi (Linux ARM64) con Docker y Cloudflare Tunnel
 
-1. En la consola de Google Cloud, crea una máquina virtual con sistema operativo **Ubuntu 24.04 LTS** (tipo de máquina económica como `e2-micro` o `e2-small`).
-2. Asígnale la etiqueta de red `streamlit-server` y confirma que tenga IP externa.
-3. Abre el puerto 8501 en el firewall ejecutando esto en la Cloud Shell de GCP:
+Nuestra aplicación se encuentra **actualmente desplegada y funcionando en vivo** en una Raspberry Pi física con arquitectura ARM64, demostrando la portabilidad real de los contenedores Docker en hardware dedicado:
+
+* **Enlace público activo:** [https://aircraft-bruce-mark-zone.trycloudflare.com/](https://aircraft-bruce-mark-zone.trycloudflare.com/)
+
+**Pasos exactos con los que se montó en la Raspberry Pi:**
+1. **Instalación de Docker en la Raspberry Pi:**
+   ```bash
+   curl -fsSL https://get.docker.com -o get-docker.sh
+   sudo sh get-docker.sh
+   sudo usermod -aG docker $USER
+   newgrp docker
+   ```
+2. **Descarga del proyecto y construcción de la imagen nativa:**
+   ```bash
+   git clone https://github.com/eljarcor98/Taller-Final-Machine-Learning-II.git
+   cd Taller-Final-Machine-Learning-II
+   docker build -t ml-streamlit-app .
+   ```
+3. **Ejecución del contenedor en segundo plano con reinicio automático:**
+   ```bash
+   docker run -d --name ml-streamlit --restart unless-stopped -p 8501:8501 ml-streamlit-app
+   ```
+4. **Exposición pública segura a Internet mediante Cloudflare Tunnel:**
+   ```bash
+   # Descarga e instalación de cloudflared
+   curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
+   sudo dpkg -i cloudflared.deb
+
+   # Ejecución en segundo plano persistente (sin morir al cerrar SSH)
+   nohup cloudflared tunnel --url http://127.0.0.1:8501 > cloudflare.log 2>&1 & disown
+   ```
+   *Ventajas técnicas:* No requiere abrir puertos inseguros en el router residencial, cuenta con certificado SSL/HTTPS nativo y es accesible desde cualquier red en el mundo.
+
+---
+
+### 9.2 Despliegue en Google Cloud Platform (Compute Engine)
+
+Para replicar el despliegue en una Máquina Virtual de GCP:
+
+1. En Google Cloud Console, crear una máquina virtual con sistema operativo **Ubuntu 24.04 LTS** (serie `e2-micro` o `e2-small`).
+2. Asignar la etiqueta de red `streamlit-server` y confirmar dirección IP externa.
+3. Abrir el puerto 8501 en el firewall desde Cloud Shell:
    ```bash
    gcloud compute firewall-rules create allow-streamlit-8501 \
        --allow=tcp:8501 \
        --direction=INGRESS \
        --target-tags=streamlit-server
    ```
-4. Entra por la terminal **SSH** de la máquina virtual y corre estos comandos:
+4. Conectarse por SSH a la VM y ejecutar:
    ```bash
-   # Instalar Docker y Git
    sudo apt update && sudo apt install -y docker.io git
    sudo systemctl enable --now docker
    sudo usermod -aG docker $USER
 
-   # Clonar nuestro repositorio
    git clone https://github.com/eljarcor98/Taller-Final-Machine-Learning-II.git
    cd Taller-Final-Machine-Learning-II
-
-   # Construir y levantar el contenedor
    docker build -t ml-streamlit-app .
    docker run -d --name ml-streamlit --restart unless-stopped -p 8501:8501 ml-streamlit-app
    ```
-5. Abre la aplicación en tu navegador con la IP pública de la máquina:
-   `http://<IP_EXTERNA_DE_TU_VM>:8501`
+5. Abrir en el navegador: `http://<IP_EXTERNA_DE_LA_VM>:8501`.
 
-### Alternativas de despliegue adicionales:
-* **En una Raspberry Pi o servidor físico local:** Clonas el repo y corres los mismos comandos de Docker. Para sacarlo a internet sin abrir puertos en el router, usas `npx localtunnel --port 8501` o Cloudflare Tunnel.
-* **En Render.com o Koyeb:** Conectas el repositorio de GitHub, eliges el entorno **Docker** y el servicio compila y levanta la app automáticamente con HTTPS gratis.
+---
+
+### 9.3 Despliegue Alternativo en PaaS (Render.com / Koyeb)
+1. Conectar la cuenta de GitHub con [Render.com](https://render.com).
+2. Crear un nuevo Web Service seleccionando el repositorio `Taller-Final-Machine-Learning-II`.
+3. Seleccionar el entorno **Docker** (detectará automáticamente el `Dockerfile` y la variable de puerto `$PORT`).
+4. Render compilará la imagen y asignará una URL pública segura con HTTPS.
 
 ---
 
 ## 10. Casos de Prueba para la Evaluación Cruzada
 
-Para la prueba entre parejas, la otra pareja debe clonar el repositorio y probar estos 4 casos en la aplicación web para comprobar que arroja exactamente los mismos resultados:
+Para la prueba entre parejas, la otra pareja puede acceder a la URL pública [https://aircraft-bruce-mark-zone.trycloudflare.com/](https://aircraft-bruce-mark-zone.trycloudflare.com/) (o clonar el repositorio) y probar estos 4 casos para comprobar que arroja exactamente los mismos resultados:
 
 ### Pruebas en Pestaña 1 (Modelo Supervisado):
 * **Caso 1: Paciente de alta gravedad (Gestante con complicación materna):**
