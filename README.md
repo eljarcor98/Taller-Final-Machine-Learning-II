@@ -2,7 +2,7 @@
 
 ## 1. Información General
 * **Proyecto:** Plataforma de Analítica y Triaje Epidemiológico con Machine Learning
-* **Integrantes:** Arnold Santiago Torres (@eljarcor98) y compañero de pareja
+* **Integrantes:** Arnold Santiago Torres Anzola
 * **Materia:** Machine Learning 2
 * **Repositorio en GitHub:** https://github.com/eljarcor98/Taller-Final-Machine-Learning-II
 * **Aplicación en Vivo (Activa en Internet):** [https://aircraft-bruce-mark-zone.trycloudflare.com/](https://aircraft-bruce-mark-zone.trycloudflare.com/)
